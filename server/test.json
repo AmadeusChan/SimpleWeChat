@@ -1,0 +1,4 @@
+
+{"type":"register", "content":{"name":"new_user", "pwd":"new_pwd"}}
+
+{"type":"login", "content":{"name":"new_user", "pwd":"new_pwd"}}

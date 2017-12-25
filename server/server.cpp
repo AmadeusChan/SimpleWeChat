@@ -15,6 +15,7 @@
 #include <mutex>
 #include <string>
 #include <fstream>
+#include <exception>
 
 #include "json.hpp"
 
@@ -68,41 +69,28 @@ class MainControl {
 
 			pwdMtx.unlock();
 			return flag;
-
-			/*
-			FILE * pFile = fopen("users.txt", "r");
-			char theName[64], thePwd[64];
-			bool flag = true;
-			while (fscanf(pFile, "%s", theName) != EOF) {
-				fscanf(pFile, "%s", thePwd);
-				if (strcmp(name, theName) == 0) {
-					flag = false;
-					break;
-				}
-			}
-			fclose(pFile);
-			if (flag) {
-				pFile = fopen("users.txt", "a+");
-				fprintf(pFile, "%s\n%s\n", theName, thePwd);
-				fclose(pFile);
-			}
-			pwdMtx.unlock();
-			return flag;
-			*/
 		}
 
-		static bool checkLogin(char *name, char *pwd) {
-			FILE * pFile = fopen("users.txt", "r");
-			char theName[64], thePwd[64];
+		static bool checkLogin(std::string name_, std::string pwd_) {
 			bool flag = false;
-			while (fscanf(pFile, "%s", theName) != EOF) {
-				fscanf(pFile, "%s", thePwd);
-				if (strcmp(name, theName) == 0 && strcmp(pwd, thePwd) == 0) {
+
+			pwdMtx.lock();
+			std::ifstream f("users.json");
+			json j;
+			f>>j;
+			f.close();
+			pwdMtx.unlock();
+
+			int len = j.size();
+			for (int i=0; i<len; ++i) {
+				std::string name = j[i][0];
+				std::string pwd = j[i][1];
+				if (name.compare(name_) == 0 && pwd.compare(pwd_) == 0) {
 					flag = true;
 					break;
 				}
 			}
-			fclose(pFile);
+
 			return flag;
 		}
 
@@ -256,20 +244,33 @@ class ClientSession {
 			}
 			putchar('\n');
 			word_[len] = 0;
-			std::string word = std::string(word_);
-			std::cout<<word<<std::endl;
-			json j = json::parse(word);
-			json content = j["content"];
-			std::string type = j["type"];
-			if (type.compare("register") == 0) {
-				bool flag = MainControl::registerUser(content["name"], content["pwd"]);
-				if (flag) {
-					char response[20] = "{\"type\": \"reg_ack\"}";
-					writeString(response, strlen(response));
-				} else {
-					char response[20] = "{\"type\": \"reg_nak\"}";
-					writeString(response, strlen(response));
+			try {
+				std::string word = std::string(word_);
+				std::cout<<word<<std::endl;
+				json j = json::parse(word);
+				json content = j["content"];
+				std::string type = j["type"];
+				if (type.compare("register") == 0) {
+					bool flag = MainControl::registerUser(content["name"], content["pwd"]);
+					if (flag) {
+						char response[20] = "{\"type\": \"reg_ack\"}";
+						writeString(response, strlen(response));
+					} else {
+						char response[20] = "{\"type\": \"reg_nak\"}";
+						writeString(response, strlen(response));
+					}
+				} else if (type.compare("login") == 0) {
+					bool flag = MainControl::checkLogin(content["name"], content["pwd"]);
+					if (flag) {
+						char response[32] = "{\"type\": \"login_ack\"}";
+						writeString(response, strlen(response));
+					} else {
+						char response[32] = "{\"type\": \"login_nak\"}";
+						writeString(response, strlen(response));
+					}
 				}
+			} catch (std::exception& e) {
+				printLog("not valid msg");
 			}
 		}
 
