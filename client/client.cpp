@@ -58,6 +58,11 @@ int main(int argc, char *argv[])
     	if (n < 0) 
     	     error("ERROR writing to socket");
     	printf("write succ\n");
+	bzero(buffer, 256);
+	n = read(sockfd, buffer, 255);
+	if (n>0) {
+		printf("msg received: %s\n", buffer);
+	}
     }
 
     bzero(buffer,256);
