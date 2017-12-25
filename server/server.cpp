@@ -28,7 +28,7 @@ class ClientSession;
 class MainControl {
 	private:
 		static std::deque<ClientSession*> sessions;
-		static std::mutex sessMtx, pwdMtx, profileMtx;
+		static std::mutex sessMtx, pwdMtx, profileMtx, histMtx;
 	public: 
 		static void registerSession(ClientSession *sess) {
 			sessMtx.lock();
@@ -99,6 +99,7 @@ class MainControl {
 			std::ifstream fin("users.json");
 			json j;
 			fin>>j;
+			fin.close();
 			pwdMtx.unlock();
 
 			int len = j.size();
@@ -115,25 +116,104 @@ class MainControl {
 			std::ifstream fin("profile.json");
 			json j;
 			fin>>j;
+			fin.close();
 			profileMtx.unlock();
 
 			return j[name_]["friends"].dump();
 		}
 
-		static char* getAllMessage(char *name, bool notReadOnly) {
-			FILE * pFile = fopen("message.txt", "r");
-			char sender[64], receiver[64], msg[64];
-			char *val = new char[4096];
-			int cnt = 0;
-			while (fscanf(pFile, "%s", sender) != EOF) {
-				fscanf(pFile, "%s", receiver);
-				fscanf(pFile, "%s", msg);
-				memcpy(val + cnt, sender, strlen(sender));
-				val[cnt++] = ' ';
-				memcpy(val + cnt, msg, strlen(msg));
-				val[cnt++] = ' ';
+		static bool addFriends(std::string name_, std::string friend_) {
+			bool flag = true;
+
+			profileMtx.lock();
+			std::ifstream fin("profile.json");
+			json j;
+			fin>>j;
+			fin.close();
+			profileMtx.unlock();
+
+			try {
+				json k = j[name_]["friends"];
+				int len = k.size();
+				for (int i=0; i<len; ++i) {
+					std::string fri = k[i];
+					if (fri.compare(friend_) == 0) {
+						flag = false;
+						break;
+					}
+				}
+			} catch (std::exception e) {
+				flag = false;
 			}
-			return val;
+
+			if (flag) {
+				j[name_]["friends"].push_back(friend_);
+				j[friend_]["friends"].push_back(name_);
+				profileMtx.lock();
+				std::ofstream fout("profile.json");
+				fout<<j;
+				fout.close();
+				profileMtx.unlock();
+			}
+
+			return flag;
+		}
+
+		static void sendMessage(std::string sender_, std::string receiver_, std::string msg_) {
+			histMtx.lock();
+
+			std::ifstream fin("history.json");
+			json j;
+			fin>>j;
+			fin.close();
+
+			json record;
+			record["sender"] = sender_;
+			record["receiver"] = receiver_;
+			record["msg"] = msg_;
+			record["isRead"] = false;
+
+			j[receiver_].push_back(record);
+			
+			json record_;
+			record_["sender"] = sender_;
+			record_["receiver"] = receiver_;
+			record_["msg"] = msg_;
+			record_["isRead"] = true;
+			j[sender_].push_back(record_);
+
+			std::ofstream fout("history.json");
+			fout<<j;
+			fout.close();
+
+			histMtx.unlock();
+		}
+
+		static std::string getAllMessage(std::string name_, bool unreadOnly_) {
+			json allMsg;
+
+			histMtx.lock();
+			std::ifstream fin("history.json");
+			json j;
+			fin>>j;
+			fin.close();
+			histMtx.unlock();
+
+			int len = j[name_].size();
+			for (int i=0; i<len; ++i) {
+				if (unreadOnly_ == false || j[name_][i]["isRead"] == false) {
+					allMsg.push_back(j[name_][i]);
+				}
+				j[name_][i]["isRead"] = true;
+			}
+
+			histMtx.lock();
+			std::ofstream fout("history.json");
+			fout<<j;
+			fout.close();
+			histMtx.unlock();
+
+			return allMsg.dump();
 		}
 
 
@@ -143,6 +223,7 @@ std::deque<ClientSession*> MainControl::sessions;
 std::mutex MainControl::sessMtx;
 std::mutex MainControl::pwdMtx;
 std::mutex MainControl::profileMtx; 
+std::mutex MainControl::histMtx;
 
 class SessionEvent {
 
@@ -270,6 +351,26 @@ class ClientSession {
 				} else if (type.compare("getAllFriends") == 0) {
 					std::string friends = MainControl::getAllFriends(content["name"]);
 					writeString(friends);
+				} else if (type.compare("addFriend") == 0) {
+					std::string name = content["name"];
+					std::string fri = content["friend"];
+					bool flag = MainControl::addFriends(name, fri);
+					json response;
+					if (flag) {
+						response["type"] = "add_friend_ack";
+					} else {
+						response["type"] = "add_friend_nak";
+					}
+					writeString(response.dump());
+				} else if (type.compare("sendMessage") == 0) {
+					std::string sender = content["sender"];
+					std::string receiver = content["receiver"];
+					std::string msg = content["msg"];
+					MainControl::sendMessage(sender, receiver, msg);
+				} else if (type.compare("getAllMessage") == 0) {
+					std::string name = content["name"];
+					bool unreadOnly = content["unreadOnly"];
+					writeString(MainControl::getAllMessage(name, unreadOnly));
 				}
 			} catch (std::exception& e) {
 				printLog("not valid msg");

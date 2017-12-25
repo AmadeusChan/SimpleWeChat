@@ -7,3 +7,10 @@
 
 {"type":"getAllFriends", "content":{"name":"amadeus"}}
 {"type":"getAllFriends", "content":{"name":"new_user"}}
+
+{"type":"addFriend", "content":{"name":"new_user", "friend":"amadeus"}}
+
+{"type":"sendMessage", "content":{"sender":"new_user", "receiver":"amadeus", "msg": "hello amadeus!"}}
+{"type":"sendMessage", "content":{"sender":"new_user", "receiver":"amadeus", "msg": "hello amadeus2!"}}
+
+{"type":"getAllMessage", "content":{"name":"amadeus", "unreadOnly":false}}

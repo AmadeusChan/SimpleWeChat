@@ -1,11 +1,1 @@
-{
-	"amadeus": {
-		"friends": ["user"]
-	},
-	"user": {
-		"friends": ["amadeus"]
-	}, 
-	"new_user": {
-		"friends": []
-	}
-}
+{"amadeus":{"friends":["user","new_user"]},"new_user":{"friends":["amadeus"]},"user":{"friends":["amadeus"]}}
