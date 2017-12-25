@@ -28,7 +28,7 @@ class ClientSession;
 class MainControl {
 	private:
 		static std::deque<ClientSession*> sessions;
-		static std::mutex sessMtx, pwdMtx;
+		static std::mutex sessMtx, pwdMtx, profileMtx;
 	public: 
 		static void registerSession(ClientSession *sess) {
 			sessMtx.lock();
@@ -94,39 +94,30 @@ class MainControl {
 			return flag;
 		}
 
-		static char* getAllUser() {
-			FILE * pFile = fopen("users.txt", "r");
-			char theName[64], thePwd[64];
-			char *users = new char[1024];
-			int cnt = 0;
-			while (fscanf(pFile, "%s", theName) != EOF) {
-				fscanf(pFile, "%s", thePwd);
-				memcpy(users + cnt, theName, strlen(theName));
-				cnt += strlen(theName);
-				users[cnt++] = ' ';
+		static std::string getAllUser() {
+			pwdMtx.lock();
+			std::ifstream fin("users.json");
+			json j;
+			fin>>j;
+			pwdMtx.unlock();
+
+			int len = j.size();
+			json users;
+			for (int i=0; i<len; ++i) {
+				users.push_back(j[i][0]);
 			}
-			fclose(pFile);
-			return users;
+			std::cout<<users<<std::endl;
+			return users.dump();
 		}
 
-		static char* getAllFriends(char *name) {
-			FILE * pFile = fopen("friends.txt", "r");
-			char theName[64], theB[64];
-			char *fri = new char[1024];
-			int cnt = 0;
-			while (fscanf(pFile, "%s", theName) != EOF) {
-				fscanf(pFile, "%s", theB);
-				if (strcmp(theName, name) == 0) {
-					memcpy(fri + cnt, theB, strlen(theB));
-					cnt += strlen(theB);
-					fri[cnt++] = ' ';
-				} else if (strcmp(theB, name) == 0) {
-					memcpy(fri + cnt, theName, strlen(theName));
-					cnt += strlen(theName);
-					fri[cnt++] = ' ';
-				}
-			}
-			return fri;
+		static std::string getAllFriends(std::string name_) {
+			profileMtx.lock();
+			std::ifstream fin("profile.json");
+			json j;
+			fin>>j;
+			profileMtx.unlock();
+
+			return j[name_]["friends"].dump();
 		}
 
 		static char* getAllMessage(char *name, bool notReadOnly) {
@@ -151,13 +142,14 @@ class MainControl {
 std::deque<ClientSession*> MainControl::sessions;
 std::mutex MainControl::sessMtx;
 std::mutex MainControl::pwdMtx;
+std::mutex MainControl::profileMtx; 
 
 class SessionEvent {
 
 	public: 
 		static const int READ_EVENT, WRITE_EVENT;
 
-		SessionEvent(int type_, char *content_, int size_) {
+		SessionEvent(int type_, const char *content_, int size_) {
 			type = type_;
 			size = size_ + 1;
 			content = new char[size_ + 2];
@@ -214,10 +206,14 @@ class ClientSession {
 			printLog("constructing");
 		}
 
-		void writeString(char *content, int len) {
+		void writeString(const char *content, int len) {
 			writeEventMtx->lock();
 			writeEvent->push_back(SessionEvent(SessionEvent::WRITE_EVENT, content, len));
 			writeEventMtx->unlock();
+		}
+
+		void writeString(std::string str) {
+			writeString(str.c_str(), str.size());
 		}
 
 		void saveReadString(char *content, int len) {
@@ -268,6 +264,12 @@ class ClientSession {
 						char response[32] = "{\"type\": \"login_nak\"}";
 						writeString(response, strlen(response));
 					}
+				} else if (type.compare("getAllUsers") == 0) {
+					std::string users = MainControl::getAllUser();
+					writeString(users.c_str(), users.size());
+				} else if (type.compare("getAllFriends") == 0) {
+					std::string friends = MainControl::getAllFriends(content["name"]);
+					writeString(friends);
 				}
 			} catch (std::exception& e) {
 				printLog("not valid msg");
@@ -305,7 +307,7 @@ class ClientSession {
 						if (buffer[i] == flag) {
 							//processWord(temp, tempCnt);
 							saveReadString(temp, tempCnt);
-							writeString(temp, tempCnt);
+							//writeString(temp, tempCnt);
 							tempCnt = 0;
 						} else {
 							isEsc = true;

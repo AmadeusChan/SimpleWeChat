@@ -2,3 +2,8 @@
 {"type":"register", "content":{"name":"new_user", "pwd":"new_pwd"}}
 
 {"type":"login", "content":{"name":"new_user", "pwd":"new_pwd"}}
+
+{"type": "getAllUsers"}
+
+{"type":"getAllFriends", "content":{"name":"amadeus"}}
+{"type":"getAllFriends", "content":{"name":"new_user"}}

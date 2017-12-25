@@ -1,0 +1,11 @@
+{
+	"amadeus": {
+		"friends": ["user"]
+	},
+	"user": {
+		"friends": ["amadeus"]
+	}, 
+	"new_user": {
+		"friends": []
+	}
+}
