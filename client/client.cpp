@@ -123,6 +123,8 @@ class MainControl {
 		static void addFriend(std::string name_, std::string fri_);
 		static void addFriendSuccess();
 		static void addFriendFailed();
+		static void showProfile(std::string name_);
+		static void sendMessage(std::string sender_, std::string receiver_, std::string msg_);
 		/*
 		static bool addFriend(std::string name_, std::string friend_);
 		*/
@@ -402,10 +404,11 @@ void MainControl::registerFailed() {
 void MainControl::mainLoop() {
 	MainDisplay::showWelcome();
 	int state = FORMAL_STATE;
-	std::string userName;
+	std::string userName, chatto;
 	while (1) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		std::this_thread::sleep_for(std::chrono::milliseconds(300));
 		MainDisplay::dispMtx.lock();
+		if (state == CHATTING_STATE) MainDisplay::msg("now chatting to " + chatto + "...\n");
 		std::string str = MainDisplay::waitingForCommand();
 		MainDisplay::dispMtx.unlock();
 		std::vector<std::string> args = split(str, ' ');
@@ -427,9 +430,12 @@ void MainControl::mainLoop() {
 				} else if (args[0].compare("ls") == 0) {
 					MainControl::getAllFriends(userName);
 				} else if (args[0].compare("chat") == 0) {
+					chatto = args[1];
+					state = CHATTING_STATE;
 				} else if (args[0].compare("recvmsg") == 0) {
 				} else if (args[0].compare("recvfile") == 0) {
 				} else if (args[0].compare("profile") == 0) {
+					MainControl::showProfile(userName);
 				} else if (args[0].compare("sync") == 0) {
 				} else {
 					MainDisplay::showInvalidCommand();
@@ -439,8 +445,10 @@ void MainControl::mainLoop() {
 			}
 		} else {
 			if (args[0].compare("sendmsg") == 0) {
+				MainControl::sendMessage(userName, chatto, str.substr(args[0].length()+1, std::string::npos));
 			} else if (args[0].compare("senfile") == 0) {
 			} else if (args[0].compare("exit") == 0) {
+				state = FORMAL_STATE;
 			} else {
 				MainDisplay::showInvalidCommand();
 			}
@@ -610,6 +618,23 @@ void MainControl::addFriendFailed() {
 	MainDisplay::dispMtx.lock();
 	MainDisplay::msg("add friend fail. you're already friends!\n");
 	MainDisplay::dispMtx.unlock();
+}
+
+void MainControl::showProfile(std::string name_) {
+	MainDisplay::msg("profile:\n\n");
+	MainDisplay::msg("username: " + name_ + "\n\n");
+	getAllFriends(name_);
+}
+
+void MainControl::sendMessage(std::string sender_, std::string receiver_, std::string msg_){
+	json j;
+	j["type"] = "sendMessage";
+	json content;
+	content["sender"] = sender_;
+	content["receiver"] = receiver_;
+	content["msg"] = msg_;
+	j["content"] = content;
+	sess->writeString(j.dump());
 }
 
 int main() {

@@ -244,7 +244,7 @@ class SessionEvent {
 
 		SessionEvent(int type_, const char *content_, int size_) {
 			type = type_;
-			size = size_ + 1;
+			if (type_ == WRITE_EVENT) size = size_ + 1; else size = size_;
 			content = new char[size_ + 2];
 			memcpy(content, content_, size_);
 			if (type_ == WRITE_EVENT) {
@@ -416,6 +416,7 @@ class ClientSession {
 			// ;: flag
 			printLog("reading from client");
 			int tempCnt = 0;
+			bzero(temp, BUFFER_SIZE);
 			bool isEsc = false;
 			char flag = ';';
 			char esc = '`';
@@ -441,7 +442,10 @@ class ClientSession {
 					} else {
 						if (buffer[i] == flag) {
 							//processWord(temp, tempCnt);
-							temp[tempCnt] = 0;
+							for (int ii=0; ii<tempCnt; ++ii) {
+								putchar(temp[ii]);
+							}
+							putchar('\n');
 							saveReadString(temp, tempCnt);
 							//writeString(temp, tempCnt);
 							tempCnt = 0;
