@@ -260,7 +260,7 @@ class ClientSession {
 		std::deque<SessionEvent> *writeEvent;
 		std::deque<SessionEvent> *readEvent;
 
-		std::mutex *killedMtx, *writeEventMtx, *readEventMtx, *logMtx;
+		std::mutex *killedMtx, *writeEventMtx, *readEventMtx, *logMtx, *loginMtx;
 
 		//std::mutex killedMtx, writeEventMtx, readEventMtx;
 		
@@ -283,8 +283,22 @@ class ClientSession {
 			writeEventMtx = new std::mutex();
 			readEventMtx = new std::mutex();
 			logMtx = new std::mutex();
+			loginMtx = new std::mutex();
 
 			printLog("constructing");
+		}
+
+		bool getLogin() {
+			bool flag;
+			loginMtx->lock();
+			flag = isLogin;
+			loginMtx->unlock();
+			return flag;
+		}
+		void setLogin(bool flag) {
+			loginMtx->lock();
+			isLogin = flag;
+			logMtx->unlock();
 		}
 
 		void writeString(const char *content, int len) {
@@ -345,32 +359,35 @@ class ClientSession {
 						char response[32] = "{\"type\": \"login_nak\"}";
 						writeString(response, strlen(response));
 					}
-				} else if (type.compare("getAllUsers") == 0) {
-					std::string users = MainControl::getAllUser();
-					writeString(users.c_str(), users.size());
-				} else if (type.compare("getAllFriends") == 0) {
-					std::string friends = MainControl::getAllFriends(content["name"]);
-					writeString(friends);
-				} else if (type.compare("addFriend") == 0) {
-					std::string name = content["name"];
-					std::string fri = content["friend"];
-					bool flag = MainControl::addFriends(name, fri);
-					json response;
-					if (flag) {
-						response["type"] = "add_friend_ack";
-					} else {
-						response["type"] = "add_friend_nak";
+					setLogin(flag);
+				} else if (getLogin()) {
+					if (type.compare("getAllUsers") == 0) {
+						std::string users = MainControl::getAllUser();
+						writeString(users.c_str(), users.size());
+					} else if (type.compare("getAllFriends") == 0) {
+						std::string friends = MainControl::getAllFriends(content["name"]);
+						writeString(friends);
+					} else if (type.compare("addFriend") == 0) {
+						std::string name = content["name"];
+						std::string fri = content["friend"];
+						bool flag = MainControl::addFriends(name, fri);
+						json response;
+						if (flag) {
+							response["type"] = "add_friend_ack";
+						} else {
+							response["type"] = "add_friend_nak";
+						}
+						writeString(response.dump());
+					} else if (type.compare("sendMessage") == 0) {
+						std::string sender = content["sender"];
+						std::string receiver = content["receiver"];
+						std::string msg = content["msg"];
+						MainControl::sendMessage(sender, receiver, msg);
+					} else if (type.compare("getAllMessage") == 0) {
+						std::string name = content["name"];
+						bool unreadOnly = content["unreadOnly"];
+						writeString(MainControl::getAllMessage(name, unreadOnly));
 					}
-					writeString(response.dump());
-				} else if (type.compare("sendMessage") == 0) {
-					std::string sender = content["sender"];
-					std::string receiver = content["receiver"];
-					std::string msg = content["msg"];
-					MainControl::sendMessage(sender, receiver, msg);
-				} else if (type.compare("getAllMessage") == 0) {
-					std::string name = content["name"];
-					bool unreadOnly = content["unreadOnly"];
-					writeString(MainControl::getAllMessage(name, unreadOnly));
 				}
 			} catch (std::exception& e) {
 				printLog("not valid msg");
@@ -407,6 +424,7 @@ class ClientSession {
 					} else {
 						if (buffer[i] == flag) {
 							//processWord(temp, tempCnt);
+							temp[tempCnt] = 0;
 							saveReadString(temp, tempCnt);
 							//writeString(temp, tempCnt);
 							tempCnt = 0;
