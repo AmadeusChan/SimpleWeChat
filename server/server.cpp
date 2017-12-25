@@ -13,9 +13,156 @@
 #include <deque>
 #include <thread>
 #include <mutex>
+#include <string>
+#include <fstream>
+
+#include "json.hpp"
 
 #define PORT 8888
 
+using json = nlohmann::json;
+
+class ClientSession;
+
+class MainControl {
+	private:
+		static std::deque<ClientSession*> sessions;
+		static std::mutex sessMtx, pwdMtx;
+	public: 
+		static void registerSession(ClientSession *sess) {
+			sessMtx.lock();
+			sessions.push_back(sess);
+			sessMtx.unlock();
+		}
+
+		static bool registerUser(std::string name_, std::string pwd_) {
+			pwdMtx.lock();
+
+			std::ifstream f("users.json");
+			json j;
+			f>>j;
+			f.close();
+
+			int len = j.size();
+			bool flag = true;
+			std::string name, pwd;
+
+			for (int i=0; i<len; ++i) {
+				name = j[i][0];
+				pwd = j[i][1];
+				if (name.compare(name_) == 0) {
+					flag = false;
+					break;
+				}
+			}
+
+			if (flag) {
+				json k;
+				k[0] = name_;
+				k[1] = pwd_;
+				j.push_back(k);
+				std::ofstream of("users.json");
+				of<<j;
+				of.close();
+			}
+
+			pwdMtx.unlock();
+			return flag;
+
+			/*
+			FILE * pFile = fopen("users.txt", "r");
+			char theName[64], thePwd[64];
+			bool flag = true;
+			while (fscanf(pFile, "%s", theName) != EOF) {
+				fscanf(pFile, "%s", thePwd);
+				if (strcmp(name, theName) == 0) {
+					flag = false;
+					break;
+				}
+			}
+			fclose(pFile);
+			if (flag) {
+				pFile = fopen("users.txt", "a+");
+				fprintf(pFile, "%s\n%s\n", theName, thePwd);
+				fclose(pFile);
+			}
+			pwdMtx.unlock();
+			return flag;
+			*/
+		}
+
+		static bool checkLogin(char *name, char *pwd) {
+			FILE * pFile = fopen("users.txt", "r");
+			char theName[64], thePwd[64];
+			bool flag = false;
+			while (fscanf(pFile, "%s", theName) != EOF) {
+				fscanf(pFile, "%s", thePwd);
+				if (strcmp(name, theName) == 0 && strcmp(pwd, thePwd) == 0) {
+					flag = true;
+					break;
+				}
+			}
+			fclose(pFile);
+			return flag;
+		}
+
+		static char* getAllUser() {
+			FILE * pFile = fopen("users.txt", "r");
+			char theName[64], thePwd[64];
+			char *users = new char[1024];
+			int cnt = 0;
+			while (fscanf(pFile, "%s", theName) != EOF) {
+				fscanf(pFile, "%s", thePwd);
+				memcpy(users + cnt, theName, strlen(theName));
+				cnt += strlen(theName);
+				users[cnt++] = ' ';
+			}
+			fclose(pFile);
+			return users;
+		}
+
+		static char* getAllFriends(char *name) {
+			FILE * pFile = fopen("friends.txt", "r");
+			char theName[64], theB[64];
+			char *fri = new char[1024];
+			int cnt = 0;
+			while (fscanf(pFile, "%s", theName) != EOF) {
+				fscanf(pFile, "%s", theB);
+				if (strcmp(theName, name) == 0) {
+					memcpy(fri + cnt, theB, strlen(theB));
+					cnt += strlen(theB);
+					fri[cnt++] = ' ';
+				} else if (strcmp(theB, name) == 0) {
+					memcpy(fri + cnt, theName, strlen(theName));
+					cnt += strlen(theName);
+					fri[cnt++] = ' ';
+				}
+			}
+			return fri;
+		}
+
+		static char* getAllMessage(char *name, bool notReadOnly) {
+			FILE * pFile = fopen("message.txt", "r");
+			char sender[64], receiver[64], msg[64];
+			char *val = new char[4096];
+			int cnt = 0;
+			while (fscanf(pFile, "%s", sender) != EOF) {
+				fscanf(pFile, "%s", receiver);
+				fscanf(pFile, "%s", msg);
+				memcpy(val + cnt, sender, strlen(sender));
+				val[cnt++] = ' ';
+				memcpy(val + cnt, msg, strlen(msg));
+				val[cnt++] = ' ';
+			}
+			return val;
+		}
+
+
+};
+
+std::deque<ClientSession*> MainControl::sessions;
+std::mutex MainControl::sessMtx;
+std::mutex MainControl::pwdMtx;
 
 class SessionEvent {
 
@@ -24,9 +171,10 @@ class SessionEvent {
 
 		SessionEvent(int type_, char *content_, int size_) {
 			type = type_;
-			size = size_;
-			content = new char[size_ + 1];
+			size = size_ + 1;
+			content = new char[size_ + 2];
 			memcpy(content, content_, size_);
+			if (type_ == WRITE_EVENT) content[size_] = ';';
 		}
 
 		int type;
@@ -45,6 +193,7 @@ class ClientSession {
 		char temp[512];
 		char buffer[256];
 		bool isLogin;
+		char userName[64];
 
 		bool isKilled;
 		std::deque<SessionEvent> *writeEvent;
@@ -67,6 +216,7 @@ class ClientSession {
 			writeEvent = new std::deque<SessionEvent>();
 			readEvent = new std::deque<SessionEvent>();
 			isKilled = false;
+			userName[0] = 0;
 
 			killedMtx = new std::mutex();
 			writeEventMtx = new std::mutex();
@@ -90,12 +240,37 @@ class ClientSession {
 			readEventMtx->unlock();
 		}
 
-		void processWord(char *word, int len) {
+		/*
+		char *splitBySpace(char *word) {
+			int len = strlne(word);
+			for (int i=0; i<len; ++i) {
+				if 
+			}
+		}
+		*/
+
+		void processWord(char *word_, int len) {
 			printLog("string received");
 			for (int i=0; i<len; ++i) {
-				putchar(word[i]);
+				putchar(word_[i]);
 			}
 			putchar('\n');
+			word_[len] = 0;
+			std::string word = std::string(word_);
+			std::cout<<word<<std::endl;
+			json j = json::parse(word);
+			json content = j["content"];
+			std::string type = j["type"];
+			if (type.compare("register") == 0) {
+				bool flag = MainControl::registerUser(content["name"], content["pwd"]);
+				if (flag) {
+					char response[20] = "{\"type\": \"reg_ack\"}";
+					writeString(response, strlen(response));
+				} else {
+					char response[20] = "{\"type\": \"reg_nak\"}";
+					writeString(response, strlen(response));
+				}
+			}
 		}
 
 		void startReading() {
@@ -157,6 +332,7 @@ class ClientSession {
 					SessionEvent event = writeEvent->front();
 					writeEvent->pop_front();
 					int n = write(sockfd, event.content, event.size);
+					delete[] event.content;
 					if (n < 0) {
 						printLog("error when writing to socket!");
 					}
@@ -173,6 +349,7 @@ class ClientSession {
 					SessionEvent event = readEvent->front();
 					readEvent->pop_front();
 					processWord(event.content, event.size);
+					delete[] event.content;
 					readEventMtx->unlock();
 				} else {
 					//printLog("no saved string");
@@ -215,6 +392,7 @@ class NetworkManager {
 			clilen = sizeof(cli_addr);
 			int sessCnt = 0;
 			while (1) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(rand()%100));
 				printf("waiting for new connection...\n");
 				newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
 				if (newsockfd < 0) {
