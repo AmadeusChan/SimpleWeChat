@@ -20,6 +20,7 @@
 #include "json.hpp"
 
 #define PORT 8888
+#define BUFFER_SIZE 4096
 
 using json = nlohmann::json;
 
@@ -108,7 +109,12 @@ class MainControl {
 				users.push_back(j[i][0]);
 			}
 			std::cout<<users<<std::endl;
-			return users.dump();
+
+			json response;
+			response["content"] = users;
+			response["type"] = "get_all_users_ack";
+
+			return response.dump();
 		}
 
 		static std::string getAllFriends(std::string name_) {
@@ -119,7 +125,13 @@ class MainControl {
 			fin.close();
 			profileMtx.unlock();
 
-			return j[name_]["friends"].dump();
+			printf("getting all users\n");
+			json response;
+			response["content"] = j[name_]["friends"];
+			response["type"] = "get_all_friends_ack";
+
+
+			return response.dump();
 		}
 
 		static bool addFriends(std::string name_, std::string friend_) {
@@ -235,7 +247,11 @@ class SessionEvent {
 			size = size_ + 1;
 			content = new char[size_ + 2];
 			memcpy(content, content_, size_);
-			if (type_ == WRITE_EVENT) content[size_] = ';';
+			if (type_ == WRITE_EVENT) {
+				content[size_] = ';';
+				content[size_ + 1] = 0;
+				printf("string to be sent: %s\n", content);
+			}
 		}
 
 		int type;
@@ -251,10 +267,10 @@ class ClientSession {
 	private:
 		int sockfd;
 		int id;
-		char temp[512];
-		char buffer[256];
+		char temp[BUFFER_SIZE];
+		char buffer[BUFFER_SIZE];
 		bool isLogin;
-		char userName[64];
+		char userName[BUFFER_SIZE];
 
 		bool isKilled;
 		std::deque<SessionEvent> *writeEvent;
@@ -289,6 +305,7 @@ class ClientSession {
 		}
 
 		bool getLogin() {
+			//return true;
 			bool flag;
 			loginMtx->lock();
 			flag = isLogin;
@@ -298,7 +315,7 @@ class ClientSession {
 		void setLogin(bool flag) {
 			loginMtx->lock();
 			isLogin = flag;
-			logMtx->unlock();
+			loginMtx->unlock();
 		}
 
 		void writeString(const char *content, int len) {
@@ -410,8 +427,8 @@ class ClientSession {
 				}
 				killedMtx->unlock();
 
-				bzero(buffer, 256);
-				int n = read(sockfd, buffer, 255);
+				bzero(buffer, BUFFER_SIZE);
+				int n = read(sockfd, buffer, BUFFER_SIZE);
 				if (n < 0) {
 					printLog("ERROR reading from socket");
 					break;
@@ -428,6 +445,7 @@ class ClientSession {
 							saveReadString(temp, tempCnt);
 							//writeString(temp, tempCnt);
 							tempCnt = 0;
+							bzero(temp, BUFFER_SIZE);
 						} else {
 							isEsc = true;
 						}
@@ -484,7 +502,7 @@ class ClientSession {
 class NetworkManager {
 	private:
 		static int port;
-		static char buffer[256];
+		static char buffer[BUFFER_SIZE];
 
 		static void error(const char *msg) {
 		    perror(msg);
@@ -548,7 +566,7 @@ class NetworkManager {
 };
 
 int NetworkManager:: port;
-char NetworkManager:: buffer[256];
+char NetworkManager:: buffer[BUFFER_SIZE];
 
 int main() {
 	NetworkManager::init();

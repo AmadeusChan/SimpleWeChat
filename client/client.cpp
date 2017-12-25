@@ -45,6 +45,7 @@ std::vector<std::string> split(std::string str_, char sep_) {
 class MainDisplay {
 	public:
 		static std::mutex msgMtx;
+		static std::mutex dispMtx;
 		static void msg(std::string msg_) {
 			msgMtx.lock();
 			std::cout<<msg_;
@@ -94,6 +95,7 @@ class MainDisplay {
 };
 
 std::mutex MainDisplay::msgMtx;
+std::mutex MainDisplay::dispMtx;
 
 class MainControl {
 	public: 
@@ -114,9 +116,14 @@ class MainControl {
 		static void login(std::string name_, std::string pwd);
 		static void loginSucess();
 		static void loginFailed();
+		static void getAllUsers();
+		static void getAllUsersSuccess(json list);
+		static void getAllFriends(std::string name_);
+		static void getAllFriendsSuccess(json list);
+		static void addFriend(std::string name_, std::string fri_);
+		static void addFriendSuccess();
+		static void addFriendFailed();
 		/*
-		static json getAllUsers();
-		static json getAllFriends(std::string name_);
 		static bool addFriend(std::string name_, std::string friend_);
 		*/
 };
@@ -256,6 +263,15 @@ class ClientSession {
 					MainControl::loginSucess();
 				} else if (type.compare("login_nak") == 0) {
 					MainControl::loginFailed();
+				} else if (type.compare("get_all_users_ack") == 0) {
+					MainControl::getAllUsersSuccess(j["content"]);
+					//MainControl::getAllFriendsResponse();
+				} else if (type.compare("get_all_friends_ack") == 0) {
+					MainControl::getAllFriendsSuccess(j["content"]);
+				} else if (type.compare("add_friend_ack") == 0) {
+					MainControl::addFriendSuccess();
+				} else if (type.compare("add_friend_nak") == 0) {
+					MainControl::addFriendFailed();
 				}
 			} catch (std::exception e) {
 				printLog("invalid msg");
@@ -371,12 +387,16 @@ void MainControl::setLogin(bool flag_){
 
 void MainControl::registerSuccess() {
 	//MainDisplay::msg("register sucess! please input new command.>");
+	MainDisplay::dispMtx.lock();
 	MainDisplay::msg("register sucess!\n");
+	MainDisplay::dispMtx.unlock();
 }
 
 void MainControl::registerFailed() {
 	//MainDisplay::msg("register failed!  please input new command.>");
+	MainDisplay::dispMtx.lock();
 	MainDisplay::msg("register failed!\n");
+	MainDisplay::dispMtx.unlock();
 }
 
 void MainControl::mainLoop() {
@@ -384,22 +404,28 @@ void MainControl::mainLoop() {
 	int state = FORMAL_STATE;
 	std::string userName;
 	while (1) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		MainDisplay::dispMtx.lock();
 		std::string str = MainDisplay::waitingForCommand();
+		MainDisplay::dispMtx.unlock();
 		std::vector<std::string> args = split(str, ' ');
 		if (state == FORMAL_STATE) {
 			if (args[0].compare("register") == 0) {
 				MainControl::registerUser(args[1], args[2]);
-			} else if (args[0].compare("login") == 0) {
+			} else if (args[0].compare("login") == 0 && !getLogin()) {
 				MainControl::login(args[1], args[2]);
+				userName = args[1];
 			} else if (args[0].compare("help") == 0) {
 				MainDisplay::showHelp();
 			} else if (args[0].compare("exit") == 0) {
 				break;
 			} else if (getLogin()) {
 				if (args[0].compare("search") == 0) {
+					MainControl::getAllUsers();
 				} else if (args[0].compare("add") == 0) {
+					MainControl::addFriend(userName, args[1]);
 				} else if (args[0].compare("ls") == 0) {
+					MainControl::getAllFriends(userName);
 				} else if (args[0].compare("chat") == 0) {
 				} else if (args[0].compare("recvmsg") == 0) {
 				} else if (args[0].compare("recvfile") == 0) {
@@ -450,12 +476,55 @@ void MainControl::login(std::string name_, std::string pwd_) {
 }
 
 void MainControl::loginSucess() {
+	MainDisplay::dispMtx.lock();
 	MainDisplay::msg("login sucess!\n");
+	MainDisplay::dispMtx.unlock();
 	setLogin(true);
 }
 
 void MainControl::loginFailed() {
+	MainDisplay::dispMtx.lock();
 	MainDisplay::msg("login failed!\n");
+	MainDisplay::dispMtx.unlock();
+}
+
+void MainControl::getAllUsers() {
+	json j;
+	j["type"] = "getAllUsers";
+	sess->writeString(j.dump());
+}
+
+void MainControl::getAllFriends(std::string name_) {
+	json j;
+	j["type"] = "getAllFriends";
+	json cont;
+	cont["name"] = name_;
+	j["content"] = cont;
+	sess->writeString(j.dump());
+}
+
+void MainControl::getAllUsersSuccess(json list) {
+	MainDisplay::dispMtx.lock();
+	MainDisplay::msg("all users:\n");
+	int len = list.size();
+	for (int i=0; i<len; ++i) {
+		std::string str = list[i];
+		MainDisplay::msg(" - " + str + "\n");
+	}
+	MainDisplay::msg("\n");
+	MainDisplay::dispMtx.unlock();
+}
+
+void MainControl::getAllFriendsSuccess(json list) {
+	MainDisplay::dispMtx.lock();
+	MainDisplay::msg("all friends:\n");
+	int len = list.size();
+	for (int i=0; i<len; ++i) {
+		std::string str = list[i];
+		MainDisplay::msg(" - " + str + "\n");
+	}
+	MainDisplay::msg("\n");
+	MainDisplay::dispMtx.unlock();
 }
 
 /*
@@ -521,6 +590,27 @@ void MainControl::init() {
 	
 }
 
+void MainControl::addFriend(std::string name_, std::string fri_) {
+	json j;
+	json content;
+	j["type"] = "addFriend";
+	content["name"] = name_;
+	content["friend"] = fri_;
+	j["content"] = content;
+	sess->writeString(j.dump());
+}
+
+void MainControl::addFriendSuccess() {
+	MainDisplay::dispMtx.lock();
+	MainDisplay::msg("successfully added friend!\n");
+	MainDisplay::dispMtx.unlock();
+}
+
+void MainControl::addFriendFailed() {
+	MainDisplay::dispMtx.lock();
+	MainDisplay::msg("add friend fail. you're already friends!\n");
+	MainDisplay::dispMtx.unlock();
+}
 
 int main() {
 	MainControl::init();
