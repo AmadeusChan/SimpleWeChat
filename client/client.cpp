@@ -111,8 +111,10 @@ class MainControl {
 		static void registerUser(std::string name_, std::string pwd_);
 		static void registerSuccess();
 		static void registerFailed();
+		static void login(std::string name_, std::string pwd);
+		static void loginSucess();
+		static void loginFailed();
 		/*
-		static bool login(std::string name_, std::string pwd);
 		static json getAllUsers();
 		static json getAllFriends(std::string name_);
 		static bool addFriend(std::string name_, std::string friend_);
@@ -250,6 +252,10 @@ class ClientSession {
 					MainControl::registerSuccess();
 				} else if (type.compare("reg_nak") == 0) {
 					MainControl::registerFailed();
+				} else if (type.compare("login_ack") == 0) {
+					MainControl::loginSucess();
+				} else if (type.compare("login_nak") == 0) {
+					MainControl::loginFailed();
 				}
 			} catch (std::exception e) {
 				printLog("invalid msg");
@@ -287,6 +293,7 @@ class ClientSession {
 					} else {
 						if (buffer[i] == flag) {
 							//processWord(temp, tempCnt);
+							temp[tempCnt] = 0;
 							saveReadString(temp, tempCnt);
 							//writeString(temp, tempCnt);
 							tempCnt = 0;
@@ -375,7 +382,6 @@ void MainControl::registerFailed() {
 void MainControl::mainLoop() {
 	MainDisplay::showWelcome();
 	int state = FORMAL_STATE;
-	bool isLogin = false;
 	std::string userName;
 	while (1) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
@@ -385,11 +391,12 @@ void MainControl::mainLoop() {
 			if (args[0].compare("register") == 0) {
 				MainControl::registerUser(args[1], args[2]);
 			} else if (args[0].compare("login") == 0) {
+				MainControl::login(args[1], args[2]);
 			} else if (args[0].compare("help") == 0) {
 				MainDisplay::showHelp();
 			} else if (args[0].compare("exit") == 0) {
 				break;
-			} else if (isLogin) {
+			} else if (getLogin()) {
 				if (args[0].compare("search") == 0) {
 				} else if (args[0].compare("add") == 0) {
 				} else if (args[0].compare("ls") == 0) {
@@ -432,9 +439,26 @@ void MainControl::registerUser(std::string name_, std::string pwd_) {
 	sess->writeString(j.dump());
 }
 
+void MainControl::login(std::string name_, std::string pwd_) {
+	json j;
+	j["type"] = "login";
+	json content;
+	content["name"] = name_;
+	content["pwd"] = pwd_;
+	j["content"] = content;
+	sess->writeString(j.dump());
+}
+
+void MainControl::loginSucess() {
+	MainDisplay::msg("login sucess!\n");
+	setLogin(true);
+}
+
+void MainControl::loginFailed() {
+	MainDisplay::msg("login failed!\n");
+}
+
 /*
-static void registerUser(std::string name_, std::string pwd);
-static bool login(std::string name_, std::string pwd);
 static json getAllUsers();
 static json getAllFriends(std::string name_);
 static bool addFriend(std::string name_, std::string friend_);
