@@ -715,44 +715,43 @@ void MainControl::logout() {
 int MainControl::fileCnt = 0;
 std::deque<std::string> MainControl::fileList;
 
-std::string byte2Hex(unsigned char c_) {
-	unsigned int hi = c_/16;
-	unsigned int low = c_%16;
+std::string byte2Hex(char c_) {
+	char hi = c_/16;
+	char low = c_%16;
 	std::string val = "";
 	if (hi<10) val.push_back('0'+hi);
 	else val.push_back('A'+hi-10);
 	if (low<10) val.push_back('0'+low);
 	else val.push_back('A'+low-10);
-	//std::cout<<int(c_)<<":"<<int(hi)<<":"<<int(low)<<":"<<val<<std::endl;
 	return val;
 }
 
-char hex2Byte(char s0, char s1) {
+char hex2Byte(std::string s_) {
 	char hi, low;
-	if (s0>='0' && s0<='9') hi = s0-'0';
-	else hi = s0-'A'+10;
-	if (s1>='0' && s1<='9') low = s1-'0';
-	else low = s1-'A'+10;
+	if (s_[0]>='0' && s_[0]<='9') hi = s_[0]-'0';
+	else hi = s_[0]-'A'+10;
+	if (s_[1]>='0' && s_[1]<='9') low = s_[1]-'0';
+	else low = s_[1]-'A'+10;
 	return hi*16+low;
 }
 
-std::string translateStr(char *str_, int len) {
+std::string translateStr(std::string str_) {
 	std::string val = "";
-	//std::cout<<str_<<std::endl;
+	std::cout<<str_<<std::endl;
+	int len = str_.size();
 	for (int i=0; i<len; ++i) {
 		val = val + byte2Hex(str_[i]);
 	}
-	//std::cout<<val<<std::endl;
 	return val;
 }
 
-void inverseTranslate(char *str_, int len) {
+std::string inverseTranslate(std::string str_) {
 	std::string val = "";
-	int j=0;
-	for (int i=0; i<len; i+=2, ++j) {
-		str_[j] = hex2Byte(str_[i], str_[i+1]);
+	int len = str_.size();
+	for (int i=0; i<len; i+=2) {
+		val.push_back(hex2Byte(str_.substr(i, 2)));
 	}
-	str_[j]=0;
+	return val;
 }
 
 void MainControl::sendFile(std::string sender_, std::string receiver_, std::string file_) {
@@ -785,7 +784,7 @@ void MainControl::sendFile(std::string sender_, std::string receiver_, std::stri
 	content["max_num"] = max_num;
 	content["id"] = fileCnt;
 	content["file_name"] = file_name;
-	content["payload"] = translateStr(buffer, len<=MAX_FILE_PAC_LEN?len:MAX_FILE_PAC_LEN);
+	content["payload"] = translateStr(std::string(buffer));
 	fileList.push_back(file_);
 	fileCnt++;
 	j["content"] = content;
@@ -811,8 +810,6 @@ void MainControl::sendNextFilePacket(json response_) {
 		char buffer[MAX_FILE_PAC_LEN + 10];
 		bzero(buffer, MAX_FILE_PAC_LEN + 10);
 		std::ifstream fin(file_, std::ifstream::binary);
-		fin.seekg(0, fin.end);
-		int total_len=fin.tellg();
 		fin.seekg(pos);
 		fin.read(buffer, MAX_FILE_PAC_LEN);
 		fin.close();
@@ -826,19 +823,13 @@ void MainControl::sendNextFilePacket(json response_) {
 		content["max_num"] = max_num;
 		content["id"] = id;
 		content["file_name"] = response_["file_name"];
-		content["payload"] = translateStr(buffer, std::min(MAX_FILE_PAC_LEN, total_len-(num-1)*MAX_FILE_PAC_LEN));
-		//content["payload"] = translateStr(std::string(buffer));
+		content["payload"] = translateStr(std::string(buffer));
 		j["content"] = content;
 		sess->writeString(j.dump());
 	}
 }
 
 int main() {
-	/*
-	char s[20] = "01AB";
-	std::cout<<translateStr(s, 4)<<std::endl;
-	return 0;
-	*/
 	MainControl::init();
 	MainControl::mainLoop();
 	/*

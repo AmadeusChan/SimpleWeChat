@@ -22,17 +22,58 @@
 #include "json.hpp"
 
 #define PORT 8888
-#define BUFFER_SIZE 16348
+#define BUFFER_SIZE 65536
+#define MAX_FILE_PAC_LEN 16348
 #define UPDATE_TIME 300000
+#define MAX_SESSION 1000
 
 using json = nlohmann::json;
 
 class ClientSession;
 
+std::string byte2Hex(char c_) {
+	char hi = c_/16;
+	char low = c_%16;
+	std::string val = "";
+	if (hi<10) val.push_back('0'+hi);
+	else val.push_back('A'+hi-10);
+	if (low<10) val.push_back('0'+low);
+	else val.push_back('A'+low-10);
+	return val;
+}
+
+char hex2Byte(std::string s_) {
+	char hi, low;
+	if (s_[0]>='0' && s_[0]<='9') hi = s_[0]-'0';
+	else hi = s_[0]-'A'+10;
+	if (s_[1]>='0' && s_[1]<='9') low = s_[1]-'0';
+	else low = s_[1]-'A'+10;
+	return hi*16+low;
+}
+
+std::string translateStr(std::string str_) {
+	std::string val = "";
+	std::cout<<str_<<std::endl;
+	int len = str_.size();
+	for (int i=0; i<len; ++i) {
+		val = val + byte2Hex(str_[i]);
+	}
+	return val;
+}
+
+std::string inverseTranslate(std::string str_) {
+	std::string val = "";
+	int len = str_.size();
+	for (int i=0; i<len; i+=2) {
+		val.push_back(hex2Byte(str_.substr(i, 2)));
+	}
+	return val;
+}
+
 class MainControl {
 	private:
 		static std::deque<ClientSession*> sessions;
-		static std::mutex sessMtx, pwdMtx, profileMtx, histMtx;
+		static std::mutex sessMtx, pwdMtx, profileMtx, histMtx, fileMtx;
 	public: 
 		static void registerSession(ClientSession *sess) {
 			sessMtx.lock();
@@ -270,6 +311,44 @@ class MainControl {
 			return res;
 		}
 
+		static void sendFileRequest(std::string sender_, std::string receiver_, std::string fileName_) {
+			fileMtx.lock();
+			std::ifstream fin("files_list.json");
+			json j;
+			fin>>j;
+			fin.close();
+			json entry;
+			entry["sender"] = sender_;
+			entry["receiver"] = receiver_;
+			entry["file"] = fileName_;
+			entry["isReceived"] = false;
+			j.push_back(entry);
+			std::ofstream fout("file_list.json");
+			fout<<j;
+			fout.close();
+			fileMtx.unlock();
+		}
+
+		static void getFilePacket(json j) {
+			int num = j["num"];
+			int maxNum = j["max_num"];
+			std::string name = j["file_name"];
+			std::string payload = j["payload"];
+			std::string sender = j["sender"];
+			std::string receiver = j["receiver"];
+			std::ofstream fout;
+			if (num) {
+				fout.open(sender + "_to_" + receiver + "_" + name, std::ios_base::app);
+			} else {
+				fout.open(sender + "_to_" + receiver + "_" + name);
+			}
+			fout<<inverseTranslate(payload);
+			fout.close();
+			if (num == maxNum) {
+				sendFileRequest(sender, receiver, name);
+			}
+		}
+
 };
 
 std::deque<ClientSession*> MainControl::sessions;
@@ -277,6 +356,7 @@ std::mutex MainControl::sessMtx;
 std::mutex MainControl::pwdMtx;
 std::mutex MainControl::profileMtx; 
 std::mutex MainControl::histMtx;
+std::mutex MainControl::fileMtx;
 
 class SessionEvent {
 
@@ -347,6 +427,12 @@ class ClientSession {
 			printLog("constructing");
 		}
 
+		void terminate() {
+			killedMtx->lock();
+			isKilled = true;
+			killedMtx->unlock();
+		}
+
 		bool getLogin() {
 			//return true;
 			bool flag;
@@ -403,10 +489,12 @@ class ClientSession {
 
 		void processWord(char *word_, int len) {
 			printLog("string received");
+			/*
 			for (int i=0; i<len; ++i) {
 				putchar(word_[i]);
 			}
 			putchar('\n');
+			*/
 			word_[len] = 0;
 			try {
 				std::string word = std::string(word_);
@@ -464,6 +552,18 @@ class ClientSession {
 						writeString(MainControl::getAllMessage(name, unreadOnly));
 					} else if (type.compare("logout") == 0) {
 						setLogin(false);
+					} else if (type.compare("sendFile") == 0) {
+						MainControl::getFilePacket(j["content"]);
+						int num = j["content"]["num"];
+						json res;
+						res["type"] = "send_file_ack";
+						res["num"] = num;
+						res["max_num"] = j["content"]["max_num"];
+						res["id"] = j["content"]["id"];
+						res["sender"] = j["content"]["sender"];
+						res["receiver"] = j["content"]["receiver"];
+						res["file_name"] = j["content"]["file_name"];
+						writeString(res.dump());
 					}
 				}
 			} catch (std::exception& e) {
@@ -519,74 +619,88 @@ class ClientSession {
 		} 
 		void start() { // main loop fun
 			printLog("start main loop");
-			int udpTimer = clock();
-			while (1) {
-				/*
-				std::cout<<"writing"<<std::endl;
-				std::this_thread::sleep_for(std::chrono::milliseconds(3000));
-				*/
-				killedMtx->lock();
-				if (isKilled) {
-					killedMtx->unlock();
-					break;
-				}
-				killedMtx->unlock();
-
-				if (clock()-udpTimer>5000000 && getLogin()) {
-					udpTimer = clock();
-					json res = MainControl::getRealTimeMessage(getUserName(), true);
+			//int udpTimer = clock();
+			try {
+				while (1) {
+					//printLog("sleep.");
+					std::this_thread::sleep_for(std::chrono::milliseconds(rand()%100));
+					//printLog("wake up.");
+					//std::cout<<"timer: "<<udpTimer<<std::endl;
 					/*
-					json fake;
-					fake["sender"] = "god";
-					fake["receiver"] = "god";
-					fake["msg"] = "msg";
-					json fake_list;
-					fake_list.push_back(fake);
-					res["content"] = fake_list;
+					std::cout<<"writing"<<std::endl;
+					std::this_thread::sleep_for(std::chrono::milliseconds(3000));
 					*/
-					if (res["content"].size()>0) {
-						printLog("updating realtime message");
-						writeString(res.dump());
+					killedMtx->lock();
+					if (isKilled) {
+						killedMtx->unlock();
+						break;
 					}
-					//MainControl::getRealTimeMessage(getUserName(), true);
-				}
+					killedMtx->unlock();
 
-				writeEventMtx->lock();
-				if (writeEvent->size()>0) { // do some writing stuff
-					SessionEvent event = writeEvent->front();
-					writeEvent->pop_front();
-					int n = write(sockfd, event.content, event.size);
-					delete[] event.content;
-					if (n < 0) {
-						printLog("error when writing to socket!");
+					if (getLogin()) {
+						//udpTimer = clock();
+						json res = MainControl::getRealTimeMessage(getUserName(), true);
+						/*
+						json fake;
+						fake["sender"] = "god";
+						fake["receiver"] = "god";
+						fake["msg"] = "msg";
+						json fake_list;
+						fake_list.push_back(fake);
+						res["content"] = fake_list;
+						*/
+						if (res["content"].size()>0) {
+							printLog("updating realtime message");
+							writeString(res.dump());
+						}
+						//MainControl::getRealTimeMessage(getUserName(), true);
 					}
-					writeEventMtx->unlock();
-				} else {
-					writeEventMtx->unlock();
-				}
 
-				readEventMtx->lock();
-				//std::cout<<readEvent->size()<<std::endl;
-				//std::this_thread::sleep_for(std::chrono::milliseconds(rand()%10000));
-				if (readEvent->size()>0) { // process the read string
-					//printLog("processing saved string");
-					SessionEvent event = readEvent->front();
-					readEvent->pop_front();
-					processWord(event.content, event.size);
-					delete[] event.content;
-					readEventMtx->unlock();
-				} else {
-					//printLog("no saved string");
-					readEventMtx->unlock();
+					writeEventMtx->lock();
+					if (writeEvent->size()>0) { // do some writing stuff
+						SessionEvent event = writeEvent->front();
+						writeEvent->pop_front();
+						int n = write(sockfd, event.content, event.size);
+						delete[] event.content;
+						if (n < 0) {
+							printLog("error when writing to socket!");
+							terminate();
+						}
+						writeEventMtx->unlock();
+					} else {
+						writeEventMtx->unlock();
+					}
+
+					readEventMtx->lock();
+					//std::cout<<readEvent->size()<<std::endl;
+					//std::this_thread::sleep_for(std::chrono::milliseconds(rand()%10000));
+					if (readEvent->size()>0) { // process the read string
+						//printLog("processing saved string");
+						SessionEvent event = readEvent->front();
+						readEvent->pop_front();
+						processWord(event.content, event.size);
+						delete[] event.content;
+						readEventMtx->unlock();
+					} else {
+						//printLog("no saved string");
+						readEventMtx->unlock();
+					}
 				}
+			} catch (std::exception e) {
+				printLog("exception!");
 			}
+			terminate();
 		}
 };
+
 
 class NetworkManager {
 	private:
 		static int port;
 		static char buffer[BUFFER_SIZE];
+		static std::thread *read_thread[MAX_SESSION];
+		static std::thread *write_thread[MAX_SESSION];
+		static int sessionCnt;
 
 		static void error(const char *msg) {
 		    perror(msg);
@@ -595,6 +709,7 @@ class NetworkManager {
 
 	public:
 		static void init() {
+			sessionCnt = 0;
 			port = PORT;
 			int sockfd, newsockfd;
 			socklen_t clilen;
@@ -626,8 +741,10 @@ class NetworkManager {
 				ClientSession *sess = new ClientSession(newsockfd, sessCnt++);
 				std::thread *sessThread = new std::thread();
 				*sessThread = std::thread(&ClientSession::startReading, *sess);
+				read_thread[sessionCnt] = sessThread;
 				sessThread = new std::thread();
 				*sessThread = std::thread(&ClientSession::start, *sess);
+				write_thread[sessionCnt++] = sessThread;
 			}
 			//readFromNewSocket(newsockfd);
 			/*
@@ -651,6 +768,9 @@ class NetworkManager {
 
 int NetworkManager:: port;
 char NetworkManager:: buffer[BUFFER_SIZE];
+std::thread* NetworkManager::read_thread[MAX_SESSION];
+std::thread* NetworkManager::write_thread[MAX_SESSION];
+int NetworkManager::sessionCnt;
 
 int main() {
 	NetworkManager::init();

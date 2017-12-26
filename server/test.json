@@ -14,3 +14,4 @@
 {"type":"sendMessage", "content":{"sender":"new_user", "receiver":"amadeus", "msg": "hello amadeus2!"}}
 
 {"type":"getAllMessage", "content":{"name":"amadeus", "unreadOnly":false}}
+{"type":"getAllMessage", "content":{"name":"amadeus", "unreadOnly":false}}
