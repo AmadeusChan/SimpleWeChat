@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#include <time.h>
+
 #include <algorithm>
 #include <iostream>
 #include <deque>
@@ -20,7 +22,8 @@
 #include "json.hpp"
 
 #define PORT 8888
-#define BUFFER_SIZE 4096
+#define BUFFER_SIZE 16348
+#define UPDATE_TIME 300000
 
 using json = nlohmann::json;
 
@@ -225,9 +228,47 @@ class MainControl {
 			fout.close();
 			histMtx.unlock();
 
-			return allMsg.dump();
+			json res;
+			if (unreadOnly_) {
+				res["type"] = "get_all_unread_msg_ack";
+			} else {
+				res["type"] = "get_all_msg_ack";
+			}
+			res["content"] = allMsg;
+
+			return res.dump();
 		}
 
+		static json getRealTimeMessage(std::string name_, bool unreadOnly_) {
+			json allMsg;
+
+			histMtx.lock();
+			std::ifstream fin("history.json");
+			json j;
+			fin>>j;
+			fin.close();
+			histMtx.unlock();
+
+			int len = j[name_].size();
+			for (int i=0; i<len; ++i) {
+				if (unreadOnly_ == false || j[name_][i]["isRead"] == false) {
+					allMsg.push_back(j[name_][i]);
+				}
+				j[name_][i]["isRead"] = true;
+			}
+
+			histMtx.lock();
+			std::ofstream fout("history.json");
+			fout<<j;
+			fout.close();
+			histMtx.unlock();
+
+			json res;
+			res["type"] = "realtime_msg";
+			res["content"] = allMsg;
+
+			return res;
+		}
 
 };
 
@@ -270,13 +311,14 @@ class ClientSession {
 		char temp[BUFFER_SIZE];
 		char buffer[BUFFER_SIZE];
 		bool isLogin;
-		char userName[BUFFER_SIZE];
+		//char userName[BUFFER_SIZE];
+		std::string userName;
 
 		bool isKilled;
 		std::deque<SessionEvent> *writeEvent;
 		std::deque<SessionEvent> *readEvent;
 
-		std::mutex *killedMtx, *writeEventMtx, *readEventMtx, *logMtx, *loginMtx;
+		std::mutex *killedMtx, *writeEventMtx, *readEventMtx, *logMtx, *loginMtx, *userNameMtx;
 
 		//std::mutex killedMtx, writeEventMtx, readEventMtx;
 		
@@ -300,6 +342,7 @@ class ClientSession {
 			readEventMtx = new std::mutex();
 			logMtx = new std::mutex();
 			loginMtx = new std::mutex();
+			userNameMtx = new std::mutex();
 
 			printLog("constructing");
 		}
@@ -316,6 +359,19 @@ class ClientSession {
 			loginMtx->lock();
 			isLogin = flag;
 			loginMtx->unlock();
+		}
+
+		std::string getUserName() {
+			userNameMtx->lock();
+			std::string name = userName;
+			userNameMtx->unlock();
+			return name;
+		}
+
+		void setUserName(std::string name_) {
+			userNameMtx->lock();
+			userName = name_;
+			userNameMtx->unlock();
 		}
 
 		void writeString(const char *content, int len) {
@@ -372,6 +428,8 @@ class ClientSession {
 					if (flag) {
 						char response[32] = "{\"type\": \"login_ack\"}";
 						writeString(response, strlen(response));
+						std::string name = content["name"];
+						setUserName(name);
 					} else {
 						char response[32] = "{\"type\": \"login_nak\"}";
 						writeString(response, strlen(response));
@@ -392,7 +450,7 @@ class ClientSession {
 						if (flag) {
 							response["type"] = "add_friend_ack";
 						} else {
-							response["type"] = "add_friend_nak";
+							response["type"] = "getUserName()nd_nak";
 						}
 						writeString(response.dump());
 					} else if (type.compare("sendMessage") == 0) {
@@ -404,6 +462,8 @@ class ClientSession {
 						std::string name = content["name"];
 						bool unreadOnly = content["unreadOnly"];
 						writeString(MainControl::getAllMessage(name, unreadOnly));
+					} else if (type.compare("logout") == 0) {
+						setLogin(false);
 					}
 				}
 			} catch (std::exception& e) {
@@ -459,6 +519,7 @@ class ClientSession {
 		} 
 		void start() { // main loop fun
 			printLog("start main loop");
+			int udpTimer = clock();
 			while (1) {
 				/*
 				std::cout<<"writing"<<std::endl;
@@ -470,6 +531,25 @@ class ClientSession {
 					break;
 				}
 				killedMtx->unlock();
+
+				if (clock()-udpTimer>5000000 && getLogin()) {
+					udpTimer = clock();
+					json res = MainControl::getRealTimeMessage(getUserName(), true);
+					/*
+					json fake;
+					fake["sender"] = "god";
+					fake["receiver"] = "god";
+					fake["msg"] = "msg";
+					json fake_list;
+					fake_list.push_back(fake);
+					res["content"] = fake_list;
+					*/
+					if (res["content"].size()>0) {
+						printLog("updating realtime message");
+						writeString(res.dump());
+					}
+					//MainControl::getRealTimeMessage(getUserName(), true);
+				}
 
 				writeEventMtx->lock();
 				if (writeEvent->size()>0) { // do some writing stuff

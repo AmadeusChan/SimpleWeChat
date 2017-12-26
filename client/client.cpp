@@ -20,7 +20,7 @@
 #define PORT 8888
 #define ADDRESS "127.0.0.1"
 
-#define BUFFER_SIZE 4096
+#define BUFFER_SIZE 16348
 
 using json = nlohmann::json;
 
@@ -58,7 +58,6 @@ class MainDisplay {
 			msg("please input new command. input help for more details. >");
 		}
 		static std::string waitingForCommand() {
-			showHint();
 			std::string str;
 			std::getline(std::cin, str);
 			msg("\n");
@@ -75,6 +74,7 @@ class MainDisplay {
 			msg("recvfile: receive the most recent undownloaded file to ~/Downloads.\n");
 			msg("profile: show profile of current user.\n");
 			msg("sync: synchronze profile of all friends\n");
+			msg("logout: logout\n");
 			msg("\n");
 		}
 		static void showInvalidCommand() {
@@ -125,6 +125,11 @@ class MainControl {
 		static void addFriendFailed();
 		static void showProfile(std::string name_);
 		static void sendMessage(std::string sender_, std::string receiver_, std::string msg_);
+		static void showMessage(json msg);
+		static void showAllUnreadMessage(std::string name_);
+		static void showAllUnreadMessageSuccess(json list);
+		static void logout();
+		static void showMessageList(json list);
 		/*
 		static bool addFriend(std::string name_, std::string friend_);
 		*/
@@ -274,6 +279,10 @@ class ClientSession {
 					MainControl::addFriendSuccess();
 				} else if (type.compare("add_friend_nak") == 0) {
 					MainControl::addFriendFailed();
+				} else if (type.compare("get_all_unread_msg_ack") == 0) {
+					MainControl::showAllUnreadMessageSuccess(j["content"]);
+				} else if (type.compare("realtime_msg") == 0) {
+					MainControl::showMessageList(j["content"]);
 				}
 			} catch (std::exception e) {
 				printLog("invalid msg");
@@ -409,8 +418,10 @@ void MainControl::mainLoop() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(300));
 		MainDisplay::dispMtx.lock();
 		if (state == CHATTING_STATE) MainDisplay::msg("now chatting to " + chatto + "...\n");
-		std::string str = MainDisplay::waitingForCommand();
+		MainDisplay::showHint();
 		MainDisplay::dispMtx.unlock();
+		std::string str = MainDisplay::waitingForCommand();
+
 		std::vector<std::string> args = split(str, ' ');
 		if (state == FORMAL_STATE) {
 			if (args[0].compare("register") == 0) {
@@ -421,6 +432,7 @@ void MainControl::mainLoop() {
 			} else if (args[0].compare("help") == 0) {
 				MainDisplay::showHelp();
 			} else if (args[0].compare("exit") == 0) {
+				MainControl::logout();
 				break;
 			} else if (getLogin()) {
 				if (args[0].compare("search") == 0) {
@@ -433,10 +445,13 @@ void MainControl::mainLoop() {
 					chatto = args[1];
 					state = CHATTING_STATE;
 				} else if (args[0].compare("recvmsg") == 0) {
+					MainControl::showAllUnreadMessage(userName);
 				} else if (args[0].compare("recvfile") == 0) {
 				} else if (args[0].compare("profile") == 0) {
 					MainControl::showProfile(userName);
 				} else if (args[0].compare("sync") == 0) {
+				} else if (args[0].compare("logout") == 0) {
+					MainControl::logout();
 				} else {
 					MainDisplay::showInvalidCommand();
 				}
@@ -635,6 +650,55 @@ void MainControl::sendMessage(std::string sender_, std::string receiver_, std::s
 	content["msg"] = msg_;
 	j["content"] = content;
 	sess->writeString(j.dump());
+}
+
+void MainControl::showMessage(json msg_) {
+	//std::cout<<"to show msg"<<std::endl;
+	std::string sender = msg_["sender"];
+	std::string receiver = msg_["receiver"];
+	std::string msg = msg_["msg"];
+	MainDisplay::msg("message: " + sender + " said to " + receiver + ": " + msg + "\n");
+}
+
+void MainControl::showAllUnreadMessage(std::string name_) {
+	json j;
+	j["type"] = "getAllMessage";
+	json content;
+	content["name"] = name_;
+	content["unreadOnly"] = true;
+	j["content"] = content;
+	sess->writeString(j.dump());
+}
+
+void MainControl::showAllUnreadMessageSuccess(json list) {
+	MainDisplay::dispMtx.lock();
+	int len = list.size();
+	for (int i=0; i<len; ++i) {
+		showMessage(list[i]);
+	}
+	MainDisplay::dispMtx.unlock();
+}
+
+void MainControl::showMessageList(json list) {
+	//std::cout<<"real time msg received!"<<std::endl;
+	MainDisplay::dispMtx.lock();
+	//std::cout<<"to print real time msg received!"<<std::endl;
+	std::cout<<list.dump()<<std::endl;
+	int len = list.size();
+	for (int i=0; i<len; ++i) {
+		showMessage(list[i]);
+	}
+	MainDisplay::showHint();
+	MainDisplay::dispMtx.unlock();
+}
+
+
+void MainControl::logout() {
+	MainDisplay::msg("logout!\n");
+	json j;
+	j["type"] = "logout";
+	sess->writeString(j.dump());
+	setLogin(false);
 }
 
 int main() {
