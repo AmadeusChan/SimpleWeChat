@@ -142,6 +142,7 @@ class MainControl {
 
 		static void getFilePacket(json j);
 		static void receiveFileSuccess();
+		static void sendSticker(std::string sender_, std::string receiver_, std::string msg_);
 		/*
 		static bool addFriend(std::string name_, std::string friend_);
 		*/
@@ -498,6 +499,8 @@ void MainControl::mainLoop() {
 				MainControl::sendFile(userName, chatto, args[1]);
 			} else if (args[0].compare("exit") == 0) {
 				state = FORMAL_STATE;
+			} else if (args[0].compare("sticker") == 0) {
+				MainControl::sendSticker(userName, chatto, args[1]);
 			} else {
 				MainDisplay::showInvalidCommand();
 			}
@@ -682,16 +685,55 @@ void MainControl::sendMessage(std::string sender_, std::string receiver_, std::s
 	content["sender"] = sender_;
 	content["receiver"] = receiver_;
 	content["msg"] = msg_;
+	content["isSticker"] = false;
+	j["content"] = content;
+	sess->writeString(j.dump());
+}
+
+void MainControl::sendSticker(std::string sender_, std::string receiver_, std::string msg_) {
+	json j;
+	j["type"] = "sendMessage";
+	json content;
+	content["sender"] = sender_;
+	content["receiver"] = receiver_;
+	content["msg"] = msg_;
+	content["isSticker"] = true;
 	j["content"] = content;
 	sess->writeString(j.dump());
 }
 
 void MainControl::showMessage(json msg_) {
 	//std::cout<<"to show msg"<<std::endl;
-	std::string sender = msg_["sender"];
-	std::string receiver = msg_["receiver"];
-	std::string msg = msg_["msg"];
-	MainDisplay::msg("message: " + sender + " said to " + receiver + ": " + msg + "\n");
+	bool isSticker=false;
+	try {
+		isSticker = msg_["isSticker"];
+	} catch (std::exception e) {
+		isSticker = false;
+	}
+	if (!isSticker) {
+		std::string sender = msg_["sender"];
+		std::string receiver = msg_["receiver"];
+		std::string msg = msg_["msg"];
+		MainDisplay::msg("message: " + sender + " said to " + receiver + ": " + msg + "\n");
+	} else {
+		try {
+			std::string stickerName = msg_["msg"];
+			std::ifstream fin("./stickers/" + stickerName + ".txt");
+			if (!fin.good()) {
+				fin.close();
+				return ;
+			}
+			std::string line;
+			while (!fin.eof()) {
+				std::getline(fin, line);
+				MainDisplay::msg(line+"\n");
+			}
+			fin.close();
+			std::string sender = msg_["sender"];
+			MainDisplay::msg("you received a sticker from " + sender+"\n");
+		} catch (std::exception e) {
+		}
+	}
 }
 
 void MainControl::showAllUnreadMessage(std::string name_) {

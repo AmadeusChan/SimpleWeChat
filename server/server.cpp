@@ -237,7 +237,7 @@ class MainControl {
 			return flag;
 		}
 
-		static void sendMessage(std::string sender_, std::string receiver_, std::string msg_) {
+		static void sendMessage(std::string sender_, std::string receiver_, std::string msg_, bool isSticker_) {
 			histMtx.lock();
 
 			std::ifstream fin("history.json");
@@ -250,6 +250,7 @@ class MainControl {
 			record["receiver"] = receiver_;
 			record["msg"] = msg_;
 			record["isRead"] = false;
+			record["isSticker"] = isSticker_;
 
 			j[receiver_].push_back(record);
 			
@@ -258,6 +259,7 @@ class MainControl {
 			record_["receiver"] = receiver_;
 			record_["msg"] = msg_;
 			record_["isRead"] = true;
+			record_["isSticker"] = isSticker_;
 			j[sender_].push_back(record_);
 
 			std::ofstream fout("history.json");
@@ -678,7 +680,8 @@ class ClientSession {
 						std::string sender = content["sender"];
 						std::string receiver = content["receiver"];
 						std::string msg = content["msg"];
-						MainControl::sendMessage(sender, receiver, msg);
+						bool isSticker = content["isSticker"];
+						MainControl::sendMessage(sender, receiver, msg, isSticker);
 					} else if (type.compare("getAllMessage") == 0) {
 						std::string name = content["name"];
 						bool unreadOnly = content["unreadOnly"];
