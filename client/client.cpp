@@ -137,6 +137,11 @@ class MainControl {
 		static void showMessageList(json list);
 		static void sendFile(std::string sender_, std::string receiver_, std::string file);
 		static void sendNextFilePacket(json response_);
+		static void sendReceiveFileRequest(std::string receiver_);
+		static void receiveFileFailed();
+
+		static void getFilePacket(json j);
+		static void receiveFileSuccess();
 		/*
 		static bool addFriend(std::string name_, std::string friend_);
 		*/
@@ -292,6 +297,24 @@ class ClientSession {
 					MainControl::showMessageList(j["content"]);
 				} else if (type.compare("send_file_ack") == 0) {
 					MainControl::sendNextFilePacket(j);
+				} else if (type.compare("receive_file_request_nak") == 0) {
+					MainControl::receiveFileFailed();
+				} else if (type.compare("send_file") == 0) {
+					MainControl::getFilePacket(j["content"]);
+					json res;
+					res["type"] = "send_file_ack";
+					res["num"] = j["content"]["num"];
+					res["max_num"] = j["content"]["max_num"];
+					//res["id"] = j["content"]["id"];
+					res["sender"] = j["content"]["sender"];
+					res["receiver"] = j["content"]["receiver"];
+					res["file_name"] = j["content"]["file_name"];
+					writeString(res.dump());
+					int num = res["num"];
+					int max_num = res["max_num"];
+					if (num == max_num) {
+						MainControl::receiveFileSuccess();
+					}
 				}
 			} catch (std::exception e) {
 				printLog("invalid msg");
@@ -456,6 +479,7 @@ void MainControl::mainLoop() {
 				} else if (args[0].compare("recvmsg") == 0) {
 					MainControl::showAllUnreadMessage(userName);
 				} else if (args[0].compare("recvfile") == 0) {
+					MainControl::sendReceiveFileRequest(userName);
 				} else if (args[0].compare("profile") == 0) {
 					MainControl::showProfile(userName);
 				} else if (args[0].compare("sync") == 0) {
@@ -738,6 +762,7 @@ char hex2Byte(char s0, char s1) {
 
 std::string translateStr(char *str_, int len) {
 	std::string val = "";
+	//std::cout<<"len: "<<len<<std::endl;
 	//std::cout<<str_<<std::endl;
 	for (int i=0; i<len; ++i) {
 		val = val + byte2Hex(str_[i]);
@@ -755,6 +780,24 @@ void inverseTranslate(char *str_, int len) {
 	str_[j]=0;
 }
 
+char hex2Byte(std::string s_) {
+	char hi, low;
+	if (s_[0]>='0' && s_[0]<='9') hi = s_[0]-'0';
+	else hi = s_[0]-'A'+10;
+	if (s_[1]>='0' && s_[1]<='9') low = s_[1]-'0';
+	else low = s_[1]-'A'+10;
+	return hi*16+low;
+}
+
+std::string inverseTranslate(std::string str_) {
+	std::string val = "";
+	int len = str_.size();
+	for (int i=0; i<len; i+=2) {
+		val.push_back(hex2Byte(str_.substr(i, 2)));
+	}
+	return val;
+}
+
 void MainControl::sendFile(std::string sender_, std::string receiver_, std::string file_) {
 	char buffer[MAX_FILE_PAC_LEN + 10];
 	bzero(buffer, MAX_FILE_PAC_LEN + 10);
@@ -762,7 +805,7 @@ void MainControl::sendFile(std::string sender_, std::string receiver_, std::stri
 	fin.seekg (0, fin.end);
 	int len = fin.tellg();
 	fin.seekg (0, fin.beg);
-	fin.read(buffer, MAX_FILE_PAC_LEN);
+	fin.read(buffer, std::min(MAX_FILE_PAC_LEN, len));
 	fin.close();
 
 	std::string file_name = "";
@@ -775,7 +818,7 @@ void MainControl::sendFile(std::string sender_, std::string receiver_, std::stri
 	}
 
 	int max_num = len / MAX_FILE_PAC_LEN;
-	if (len % MAX_FILE_PAC_LEN == 0) max_num--;
+	if (len % MAX_FILE_PAC_LEN == 0 && len>0) max_num--;
 	json j;
 	j["type"] = "sendFile";
 	json content;
@@ -813,8 +856,9 @@ void MainControl::sendNextFilePacket(json response_) {
 		std::ifstream fin(file_, std::ifstream::binary);
 		fin.seekg(0, fin.end);
 		int total_len=fin.tellg();
+		//std::cout<<total_len<<std::endl;
 		fin.seekg(pos);
-		fin.read(buffer, MAX_FILE_PAC_LEN);
+		fin.read(buffer, std::min(total_len-(num)*MAX_FILE_PAC_LEN, MAX_FILE_PAC_LEN));
 		fin.close();
 
 		json j;
@@ -826,11 +870,60 @@ void MainControl::sendNextFilePacket(json response_) {
 		content["max_num"] = max_num;
 		content["id"] = id;
 		content["file_name"] = response_["file_name"];
-		content["payload"] = translateStr(buffer, std::min(MAX_FILE_PAC_LEN, total_len-(num-1)*MAX_FILE_PAC_LEN));
+		//content["payload"] = translateStr(buffer, std::min(MAX_FILE_PAC_LEN, total_len-(num-1)*MAX_FILE_PAC_LEN));
+		content["payload"] = translateStr(buffer, num<max_num?MAX_FILE_PAC_LEN:(total_len-(num)*MAX_FILE_PAC_LEN));
 		//content["payload"] = translateStr(std::string(buffer));
 		j["content"] = content;
 		sess->writeString(j.dump());
+		//std::string payload = content["payload"];
+		//std::cout<<payload.size()<<" "<<total_len-(num-1)*MAX_FILE_PAC_LEN<<std::endl;
 	}
+}
+
+void MainControl::getFilePacket(json j) {
+	int num = j["num"];
+	//int maxNum = j["max_num"];
+	std::string name = j["file_name"];
+	name = "./downloads/" + name;
+	std::string payload = j["payload"];
+	std::string sender = j["sender"];
+	std::string receiver = j["receiver"];
+
+	std::ofstream fout;
+	if (num) {
+		fout.open(name.c_str(), std::ios_base::app);
+	} else {
+		fout.open(name.c_str());
+	}
+	std::cout<<"getFilePacket:"<<j.dump()<<std::endl<<name<<std::endl;
+	fout<<inverseTranslate(payload);
+	fout.close();
+	/*
+	if (num == maxNum) {
+		sendFileRequest(sender, receiver, name);
+	}
+	*/
+}
+
+void MainControl::receiveFileFailed() {
+	MainDisplay::dispMtx.lock();
+	MainDisplay::msg("there is no file to be recieved!\n>\n");
+	MainDisplay::dispMtx.unlock();
+}
+
+void MainControl::sendReceiveFileRequest(std::string receiver_) {
+	json j;
+	j["type"] = "receive_file_request";
+	json content;
+	content["receiver"] = receiver_;
+	j["content"] = content;
+	sess->writeString(j.dump());
+}
+
+void MainControl::receiveFileSuccess() {
+	MainDisplay::dispMtx.lock();
+	MainDisplay::msg("successfully recieved file!\n>\n");
+	MainDisplay::dispMtx.unlock();
 }
 
 int main() {

@@ -345,7 +345,7 @@ class MainControl {
 			entry["file"] = fileName_;
 			entry["isReceived"] = false;
 			j.push_back(entry);
-			std::ofstream fout("files_list.json");
+			std::ofstream fout("file_list.json");
 			fout<<j;
 			fout.close();
 			fileMtx.unlock();
@@ -400,18 +400,15 @@ class MainControl {
 			fin.close();
 			fileMtx.unlock();
 
-
 			int len = j.size();
 			bool flag = false;
 			std::string receiver, sender, file, receiver_;
 			receiver_ = request["receiver"];
 			bool isReceived;
-
-			std::cout<<"processReceiveFileRequest:"<<request["receiver"]<<" "<<len<<std::endl;
 			for (int i=0; i<len; ++i) {
 				receiver = j[i]["receiver"];
 				isReceived = j[i]["isReceived"];
-				std::cout<<receiver<<":"<<receiver_<<":"<<isReceived<<std::endl;
+				printLog(receiver+":"+receiver_+":")
 				if (receiver.compare(receiver_) == 0 && isReceived == false) {
 					flag = true;
 					//j[i]["isReceived"] = true;
@@ -454,32 +451,6 @@ class MainControl {
 
 			return res.dump();
 		}
-
-		static std::string sendNextFilePacket(json res_) { // assume that num<max_num
-			int num, max_num;
-			std::string file_name, sender, receiver, payload;
-			num = res_["num"];
-			num++;
-			max_num = res_["max_num"];
-			file_name = res_["file_name"];
-			sender = res_["sender"];
-			receiver = res_["receiver"];
-			payload = getFilePacketPayload(num, max_num, file_name, sender, receiver);
-
-			json packet;
-			packet["type"] = "send_file";
-			json content;
-			content["num"] = num;
-			content["max_num"] = max_num;
-			content["sender"] = sender;
-			content["receiver"] = receiver;
-			content["file_name"] = file_name;
-			content["payload"] = payload;
-			packet["content"] = content;
-
-			return packet.dump();
-		}
-
 
 };
 
@@ -603,7 +574,7 @@ class ClientSession {
 		}
 
 		void saveReadString(char *content, int len) {
-			//printLog("saveReadString");
+			printLog("saveReadString");
 			readEventMtx->lock();
 			readEvent->push_back(SessionEvent(SessionEvent::READ_EVENT, content, len));
 			//std::cout<<readEvent->size()<<std::endl;
@@ -630,7 +601,7 @@ class ClientSession {
 			word_[len] = 0;
 			try {
 				std::string word = std::string(word_);
-				//std::cout<<word<<std::endl;
+				std::cout<<word<<std::endl;
 				json j = json::parse(word);
 				json content = j["content"];
 				std::string type = j["type"];
@@ -699,12 +670,7 @@ class ClientSession {
 					} else if (type.compare("receive_file_request") == 0) {
 						std::string res = MainControl::processReceiveFileRequest(j["content"]);
 						writeString(res);
-					} else if (type.compare("send_file_ack") == 0) {
-						int num = j["num"];
-						int max_num = j["max_num"];
-						if (num<max_num) {
-							writeString(MainControl::sendNextFilePacket(j));
-						}
+					} else if (type.compare("receive_file_ack") == 0) {
 					}
 				}
 			} catch (std::exception& e) {
