@@ -143,6 +143,7 @@ class MainControl {
 		static void getFilePacket(json j);
 		static void receiveFileSuccess();
 		static void sendSticker(std::string sender_, std::string receiver_, std::string msg_);
+		static void sendExitRequest();
 		/*
 		static bool addFriend(std::string name_, std::string friend_);
 		*/
@@ -466,6 +467,7 @@ void MainControl::mainLoop() {
 				MainDisplay::showHelp();
 			} else if (args[0].compare("exit") == 0) {
 				MainControl::logout();
+				MainControl::sendExitRequest();
 				break;
 			} else if (getLogin()) {
 				if (args[0].compare("search") == 0) {
@@ -966,6 +968,12 @@ void MainControl::receiveFileSuccess() {
 	MainDisplay::dispMtx.lock();
 	MainDisplay::msg("successfully recieved file!\n>\n");
 	MainDisplay::dispMtx.unlock();
+}
+
+void MainControl::sendExitRequest() {
+	json j;
+	j["type"] = "exit_request";
+	sess->writeString(j.dump());
 }
 
 int main() {

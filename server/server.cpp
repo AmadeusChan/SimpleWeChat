@@ -709,6 +709,8 @@ class ClientSession {
 						if (num<max_num) {
 							writeString(MainControl::sendNextFilePacket(j));
 						}
+					} else if (type.compare("exit_request") == 0) {
+						terminate();
 					}
 				}
 			} catch (std::exception& e) {
