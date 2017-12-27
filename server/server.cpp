@@ -411,12 +411,13 @@ class MainControl {
 			for (int i=0; i<len; ++i) {
 				receiver = j[i]["receiver"];
 				isReceived = j[i]["isReceived"];
-				std::cout<<receiver<<":"<<receiver_<<":"<<isReceived<<std::endl;
+				//std::cout<<receiver<<":"<<receiver_<<":"<<isReceived<<std::endl;
 				if (receiver.compare(receiver_) == 0 && isReceived == false) {
 					flag = true;
-					//j[i]["isReceived"] = true;
+					j[i]["isReceived"] = true;
 					sender = j[i]["sender"];
 					file = j[i]["file"];
+					break;
 				}
 			}
 
